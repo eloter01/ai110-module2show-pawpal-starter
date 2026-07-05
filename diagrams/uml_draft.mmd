@@ -3,6 +3,8 @@ classDiagram
         +str title
         +int duration_minutes
         +str priority
+        +str frequency
+        +List~int~ weekdays
     }
 
     class Pet {
@@ -14,24 +16,26 @@ classDiagram
     class Owner {
         +str name
         +List~Pet~ pets
-        +all_tasks() List~Task~
+        +int available_minutes
+        +time day_start
+        +all_tasks() List~(Pet, Task)~
     }
 
     class DailyPlan {
+        +date day
         +List scheduled
         +List skipped
     }
 
-    class Planner {
+    class Scheduler {
         +int available_minutes
         +time day_start
-        +make_plan(tasks) DailyPlan
-        -_sort(tasks) List~Task~
-        -_fit(tasks) DailyPlan
+        +make_plan(pet_tasks, day) DailyPlan
+        -_sort(pet_tasks) List~(Pet, Task)~
+        -_fit(pet_tasks, day) DailyPlan
     }
 
-    Owner "1" --> "*" Pet : has
-    Pet "1" --> "*" Task : has
-    Planner ..> Task : schedules
-    Planner ..> DailyPlan : produces
-    DailyPlan ..> Task : references
+    Owner "1" *-- "*" Pet : has
+    Pet "1" *-- "*" Task : has
+    Owner ..> Scheduler : configures
+    Scheduler ..> DailyPlan : produces
