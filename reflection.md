@@ -7,10 +7,37 @@
 - Briefly describe your initial UML design.
 - What classes did you include, and what responsibilities did you assign to each?
 
+Owner / account
+- Create an owner (enter name) — Owner(name=...)
+- add more owners. Supported structurally, not exercised yet
+
+Pets
+- Add a pet to an owner — append to owner.pets
+- View all pets for the owner — read owner.pets
+- Edit a pet's info (name, species) — mutate the Pet
+- Remove a pet — remove from owner.pets
+
+Tasks
+- Add a task to a pet (title, duration, priority) — append to pet.tasks
+- Edit a task (change duration/priority/title) — mutate the Task
+- Remove a task — remove from pet.tasks
+- View all tasks — via:
+    - per pet → pet.tasks
+    - across all pets (for the day) → owner.all_tasks()
+
+Planning
+- Set the day's constraints — construct Planner(available_minutes=..., day_start=...)
+- Generate a daily plan — planner.make_plan(tasks) → DailyPlan
+- View the schedule — read plan.scheduled (task + start time)
+- See what was skipped and why — read plan.skipped (the "explain the reasoning" action)
+
+
 **b. Design changes**
 
 - Did your design change during implementation?
 - If yes, describe at least one change and why you made it.
+
+1. when designing the class structure, the AI initially started with a simpler design but then created more complexity by adding additional classes when it looked at the "Smarter Scheduler" section of the Readme. I preferred to start at more simple and wanted it to use the suggested four classes per the instructions so we went with that after I told it to ignore the "Smarter Scheduler" section for now.
 
 ---
 
