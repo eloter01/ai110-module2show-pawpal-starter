@@ -1,23 +1,25 @@
-"""PawPal+ backend: owner/pet/task data and the daily planner.
+"""PawPal+ backend: owner/pet/task data and the daily scheduler.
 
 Design notes
 ------------
 The data types (Task, Pet, Owner, DailyPlan) are structured records — data
-that travels together — so they are dataclasses. Planner is a behavioral
+that travels together — so they are dataclasses. Scheduler is a behavioral
 class: it carries the day's constraints and runs the scheduling algorithm.
 
-Ownership hierarchy holds references downward only:
+Ownership is composition, navigable downward only:
 
-    Owner --> Pet --> Task
+    Owner *-- Pet *-- Task
 
-A task's owner is a derived fact (the owner of the pet that has the task),
-navigated through the chain rather than stored on the task itself.
+A Task does not store its Pet. To keep the plan pet-aware, Owner.all_tasks()
+pairs each task with its pet on the fly as (Pet, Task) tuples, and the plan
+carries that pet through to its output. This keeps Task pure data and avoids
+a bidirectional link that could drift out of sync.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import time
+from datetime import date, time
 
 
 # Priority is a plain string to match the Streamlit UI: "low" | "medium" | "high".
@@ -30,8 +32,10 @@ class Task:
 
     title: str
     duration_minutes: int
-    priority: str = "medium"  # "low" | "medium" | "high"
-
+    priority: str = "medium"      # "low" | "medium" | "high"
+    frequency: str = "daily"      # "daily" | "weekly"  (recurrence logic later)
+    weekdays: list[int] = field(default_factory=list)  # weekly only; 0=Mon..6=Sun
+    done: bool = False
 
 @dataclass
 class Pet:
@@ -46,40 +50,45 @@ class Pet:
 class Owner:
     """The user of the app, which has many pets.
 
-    Kept as a class so the model can grow to multiple owners/users later.
+    Also holds the owner's scheduling preferences (the day's time budget and
+    when the day starts), which the app uses to configure a Scheduler.
     """
 
     name: str
     pets: list[Pet] = field(default_factory=list)
+    available_minutes: int = 120           # preference: total time budget for the day
+    day_start: time = time(8, 0)           # preference: when scheduling begins
 
-    def all_tasks(self) -> list[Task]:
-        """Flatten every task across all of this owner's pets.
+    def all_tasks(self) -> list[tuple[Pet, Task]]:
+        """Flatten every task across all pets, paired with its owning pet.
 
-        This is what feeds the Planner. (If you later need to label plan
-        items with the pet's name, return list[tuple[Pet, Task]] instead.)
+        Returns (Pet, Task) tuples so the Scheduler and the resulting plan can
+        say which pet each task belongs to without Task storing a back-reference.
         """
         raise NotImplementedError
 
 
 @dataclass
 class DailyPlan:
-    """The Planner's output: what got scheduled, what got skipped and why.
+    """The Scheduler's output: what got scheduled, what got skipped and why.
 
     A multi-field bundle, so it earns being a (data) class rather than a bare
     list. "Explain the reasoning" lives in `skipped` (and can be extended to
-    annotate scheduled items too).
+    annotate scheduled items too). Each entry carries its Pet so the plan can
+    be rendered per pet.
     """
 
-    scheduled: list[tuple[time, Task]] = field(default_factory=list)
-    skipped: list[tuple[Task, str]] = field(default_factory=list)
+    day: date | None = None
+    scheduled: list[tuple[time, Pet, Task]] = field(default_factory=list)
+    skipped: list[tuple[Pet, Task, str]] = field(default_factory=list)
 
 
-class Planner:
-    """Builds a DailyPlan from a list of tasks under time constraints.
+class Scheduler:
+    """Builds a DailyPlan from (Pet, Task) pairs under time constraints.
 
-    Unlike the models, Planner is behavioral: it carries the day's constraints
+    Unlike the models, Scheduler is behavioral: it carries the day's constraints
     (config) and decomposes scheduling into testable steps (_sort, _fit).
-    Tasks are passed in, not stored, so the planner stays a reusable
+    Tasks are passed in, not stored, so the scheduler stays a reusable
     "tasks in, plan out" engine.
     """
 
@@ -87,16 +96,16 @@ class Planner:
         self.available_minutes = available_minutes  # total time budget for the day
         self.day_start = day_start                  # when scheduling begins
 
-    def make_plan(self, tasks: list[Task]) -> DailyPlan:
-        """The one public method: tasks in, scheduled plan out."""
-        ordered = self._sort(tasks)
-        return self._fit(ordered)
+    def make_plan(self, pet_tasks: list[tuple[Pet, Task]], day: date) -> DailyPlan:
+        """The one public method: (Pet, Task) pairs in, scheduled plan out."""
+        ordered = self._sort(pet_tasks)
+        return self._fit(ordered, day)
 
-    def _sort(self, tasks: list[Task]) -> list[Task]:
+    def _sort(self, pet_tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
         """High priority first; break ties by shorter duration."""
         raise NotImplementedError
 
-    def _fit(self, tasks: list[Task]) -> DailyPlan:
+    def _fit(self, pet_tasks: list[tuple[Pet, Task]], day: date) -> DailyPlan:
         """Assign start times in order, skip tasks that exceed the budget.
 
         Records a reason for each skipped task so DailyPlan can explain itself.
