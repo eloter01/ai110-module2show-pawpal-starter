@@ -37,6 +37,10 @@ class Task:
     weekdays: list[int] = field(default_factory=list)  # weekly only; 0=Mon..6=Sun
     done: bool = False
 
+    def mark_complete(self) -> None:
+        """Mark this task as done."""
+        self.done = True
+
 @dataclass
 class Pet:
     """A pet, which has many care tasks."""
