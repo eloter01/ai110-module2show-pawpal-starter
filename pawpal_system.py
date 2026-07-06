@@ -19,7 +19,7 @@ a bidirectional link that could drift out of sync.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 
 
 # Priority is a plain string to match the Streamlit UI: "low" | "medium" | "high".
@@ -63,13 +63,19 @@ class Owner:
     available_minutes: int = 120           # preference: total time budget for the day
     day_start: time = time(8, 0)           # preference: when scheduling begins
 
+    def add_pet(self, name: str, species: str = "other") -> Pet:
+        """Create a pet, attach it to this owner, and return it."""
+        pet = Pet(name=name, species=species)
+        self.pets.append(pet)
+        return pet
+
     def all_tasks(self) -> list[tuple[Pet, Task]]:
         """Flatten every task across all pets, paired with its owning pet.
 
         Returns (Pet, Task) tuples so the Scheduler and the resulting plan can
         say which pet each task belongs to without Task storing a back-reference.
         """
-        raise NotImplementedError
+        return [(pet, task) for pet in self.pets for task in pet.tasks]
 
 
 @dataclass
@@ -96,6 +102,9 @@ class Scheduler:
     "tasks in, plan out" engine.
     """
 
+    # Lower number == scheduled earlier. Unknown priorities fall back to medium.
+    _PRIORITY_RANK = {"high": 0, "medium": 1, "low": 2}
+
     def __init__(self, available_minutes: int, day_start: time = time(8, 0)):
         self.available_minutes = available_minutes  # total time budget for the day
         self.day_start = day_start                  # when scheduling begins
@@ -107,11 +116,35 @@ class Scheduler:
 
     def _sort(self, pet_tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
         """High priority first; break ties by shorter duration."""
-        raise NotImplementedError
+        return sorted(
+            pet_tasks,
+            key=lambda pt: (
+                self._PRIORITY_RANK.get(pt[1].priority, 1),
+                pt[1].duration_minutes,
+            ),
+        )
 
     def _fit(self, pet_tasks: list[tuple[Pet, Task]], day: date) -> DailyPlan:
         """Assign start times in order, skip tasks that exceed the budget.
 
         Records a reason for each skipped task so DailyPlan can explain itself.
         """
-        raise NotImplementedError
+        plan = DailyPlan(day=day)
+        used_minutes = 0
+        cursor = datetime.combine(day, self.day_start)
+
+        for pet, task in pet_tasks:
+            remaining = self.available_minutes - used_minutes
+            if task.duration_minutes > remaining:
+                reason = (
+                    f"needs {task.duration_minutes} min, only {remaining} of "
+                    f"{self.available_minutes} min left"
+                )
+                plan.skipped.append((pet, task, reason))
+                continue
+
+            plan.scheduled.append((cursor.time(), pet, task))
+            cursor += timedelta(minutes=task.duration_minutes)
+            used_minutes += task.duration_minutes
+
+        return plan

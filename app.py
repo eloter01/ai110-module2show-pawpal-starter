@@ -64,10 +64,18 @@ def get_or_create_pet(owner: Owner, name: str, species: str) -> Pet:
     for pet in owner.pets:
         if pet.name == name:
             return pet
-    pet = Pet(name=name, species=species)
-    owner.pets.append(pet)
-    return pet
+    return owner.add_pet(name, species)  # Owner owns how pets get attached
 
+
+if st.button("Add pet"):
+    if any(pet.name == pet_name for pet in owner.pets):
+        st.info(f"{pet_name} is already one of {owner.name}'s pets.")
+    else:
+        owner.add_pet(pet_name, species)
+        st.success(f"Added {pet_name} ({species}).")
+
+if owner.pets:
+    st.caption("Pets: " + ", ".join(f"{p.name} ({p.species})" for p in owner.pets))
 
 st.markdown("### Tasks")
 st.caption("Add a few tasks. These are stored as real Task objects on the pet.")
