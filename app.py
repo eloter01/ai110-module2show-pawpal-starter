@@ -1,4 +1,9 @@
+
+from datetime import date
+
 import streamlit as st
+
+from pawpal_system import Owner, Pet, Task, Scheduler
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
 
@@ -38,16 +43,34 @@ At minimum, your system should:
 
 st.divider()
 
-st.subheader("Quick Demo Inputs (UI only)")
+st.subheader("Quick Demo Inputs")
 owner_name = st.text_input("Owner name", value="Jordan")
 pet_name = st.text_input("Pet name", value="Mochi")
 species = st.selectbox("Species", ["dog", "cat", "other"])
 
-st.markdown("### Tasks")
-st.caption("Add a few tasks. In your final version, these should feed into your scheduler.")
+# --- Session vault: create the Owner ONCE, then reuse it across re-runs. ---
+# Streamlit re-runs this whole script on every interaction, so a plain local
+# variable would be rebuilt (and lose its pets/tasks) each time. The guard
+# below constructs the Owner only when it isn't already in the vault.
+if "owner" not in st.session_state:
+    st.session_state.owner = Owner(name=owner_name)
 
-if "tasks" not in st.session_state:
-    st.session_state.tasks = []
+owner = st.session_state.owner
+owner.name = owner_name  # keep the persisted Owner's name in sync with the input
+
+
+def get_or_create_pet(owner: Owner, name: str, species: str) -> Pet:
+    """Return the owner's pet with this name, creating and adding it if absent."""
+    for pet in owner.pets:
+        if pet.name == name:
+            return pet
+    pet = Pet(name=name, species=species)
+    owner.pets.append(pet)
+    return pet
+
+
+st.markdown("### Tasks")
+st.caption("Add a few tasks. These are stored as real Task objects on the pet.")
 
 col1, col2, col3 = st.columns(3)
 with col1:
@@ -58,31 +81,71 @@ with col3:
     priority = st.selectbox("Priority", ["low", "medium", "high"], index=2)
 
 if st.button("Add task"):
-    st.session_state.tasks.append(
-        {"title": task_title, "duration_minutes": int(duration), "priority": priority}
+    pet = get_or_create_pet(owner, pet_name, species)
+    pet.tasks.append(
+        Task(title=task_title, duration_minutes=int(duration), priority=priority)
     )
 
-if st.session_state.tasks:
+# Build the display table by walking owner -> pets -> tasks directly.
+task_rows = [
+    {
+        "pet": pet.name,
+        "title": task.title,
+        "duration_minutes": task.duration_minutes,
+        "priority": task.priority,
+        "done": task.done,
+    }
+    for pet in owner.pets
+    for task in pet.tasks
+]
+
+if task_rows:
     st.write("Current tasks:")
-    st.table(st.session_state.tasks)
+    st.table(task_rows)
 else:
     st.info("No tasks yet. Add one above.")
 
 st.divider()
 
 st.subheader("Build Schedule")
-st.caption("This button should call your scheduling logic once you implement it.")
+st.caption("Calls Scheduler.make_plan() with this owner's tasks.")
 
 if st.button("Generate schedule"):
-    st.warning(
-        "Not implemented yet. Next step: create your scheduling logic (classes/functions) and call it here."
+    scheduler = Scheduler(
+        available_minutes=owner.available_minutes,
+        day_start=owner.day_start,
     )
-    st.markdown(
-        """
-Suggested approach:
-1. Design your UML (draft).
-2. Create class stubs (no logic).
-3. Implement scheduling behavior.
-4. Connect your scheduler here and display results.
-"""
-    )
+    try:
+        plan = scheduler.make_plan(owner.all_tasks(), date.today())
+    except NotImplementedError:
+        st.warning(
+            "Scheduler / Owner.all_tasks() aren't implemented yet. "
+            "Implement _sort, _fit, and all_tasks in pawpal_system.py, "
+            "then this button will render a real plan."
+        )
+    else:
+        st.markdown(f"### Today's Schedule — {plan.day}")
+        if plan.scheduled:
+            st.table(
+                [
+                    {
+                        "time": start.strftime("%I:%M %p"),
+                        "pet": pet.name,
+                        "task": task.title,
+                        "duration": task.duration_minutes,
+                        "priority": task.priority,
+                    }
+                    for start, pet, task in plan.scheduled
+                ]
+            )
+        else:
+            st.info("Nothing scheduled.")
+
+        if plan.skipped:
+            st.markdown("#### Skipped")
+            st.table(
+                [
+                    {"pet": pet.name, "task": task.title, "reason": reason}
+                    for pet, task, reason in plan.skipped
+                ]
+            )
