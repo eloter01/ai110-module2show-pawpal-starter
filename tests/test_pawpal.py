@@ -140,3 +140,32 @@ def test_anchor_over_budget_is_skipped_with_reason():
     _, task, reason = plan.skipped[0]
     assert task.title == "Meds"
     assert "min left" in reason
+
+
+# --- sort_by_time: order tasks by their "HH:MM" time attribute ---
+
+def test_sort_by_time_orders_chronologically():
+    """Tasks come back earliest-first by their "HH:MM" string."""
+    tasks = [
+        Task(title="Dinner", duration_minutes=15, time="18:00"),
+        Task(title="Breakfast", duration_minutes=15, time="07:30"),
+        Task(title="Lunch", duration_minutes=15, time="12:15"),
+    ]
+    scheduler = Scheduler(available_minutes=120)
+
+    ordered = scheduler.sort_by_time(tasks)
+
+    assert [t.title for t in ordered] == ["Breakfast", "Lunch", "Dinner"]
+
+
+def test_sort_by_time_does_not_mutate_input():
+    """sorted() returns a new list; the original order is untouched."""
+    tasks = [
+        Task(title="Late", duration_minutes=10, time="22:00"),
+        Task(title="Early", duration_minutes=10, time="06:00"),
+    ]
+    scheduler = Scheduler(available_minutes=120)
+
+    scheduler.sort_by_time(tasks)
+
+    assert [t.title for t in tasks] == ["Late", "Early"]
