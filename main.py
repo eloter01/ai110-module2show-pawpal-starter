@@ -55,6 +55,9 @@ def main() -> None:
     rex.tasks.append(Task("Breakfast", 10, priority="high", time="07:30"))
     whiskers.tasks.append(Task("Lunch feed", 10, priority="medium", time="12:15"))
     whiskers.tasks.append(Task("Clean litter box", 15, priority="low", time="09:00"))
+    # Deliberate clash: Rex's midday meds land at the same 12:15 as Whiskers'
+    # lunch feed, so Scheduler.detect_conflicts() has something to warn about.
+    rex.tasks.append(Task("Midday meds", 5, priority="high", time="12:15"))
 
     # Mark one complete so the completion filter has both states to show.
     rex.tasks[1].mark_complete()  # Breakfast -> done
@@ -89,7 +92,18 @@ def main() -> None:
         sorted_pairs(scheduler, owner.filter_tasks(done=False, pet_name="Whiskers")),
     )
 
-    # 6) Recurrence: completing a recurring task spawns its next occurrence.
+    # 6) Conflict detection: two tasks at the same time -> a warning, no crash.
+    print("Conflict check (detect_conflicts):")
+    print("-" * 44)
+    conflict_warnings = scheduler.detect_conflicts(owner.all_tasks())
+    if conflict_warnings:
+        for warning in conflict_warnings:
+            print(f"  WARNING: {warning}")
+    else:
+        print("  No time conflicts.")
+    print()
+
+    # 7) Recurrence: completing a recurring task spawns its next occurrence.
     # A weekly task on Whiskers to show the +7 day step alongside a daily +1.
     whiskers.tasks.append(
         Task("Weekly groom", 20, priority="low", frequency="weekly", time="10:00")
