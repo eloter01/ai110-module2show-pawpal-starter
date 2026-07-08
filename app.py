@@ -90,7 +90,7 @@ with col2:
 with col3:
     priority = st.selectbox("Priority", ["low", "medium", "high"], index=2)
 
-col4, col5 = st.columns(2)
+col4, col5, col6 = st.columns(3)
 with col4:
     frequency = st.selectbox("Frequency", ["daily", "weekly"])
 with col5:
@@ -99,6 +99,13 @@ with col5:
         options=list(range(7)),
         format_func=lambda i: WEEKDAY_LABELS[i],
         disabled=(frequency != "weekly"),
+    )
+with col6:
+    preferred_time = st.text_input(
+        "Preferred time (HH:MM)",
+        value="",
+        placeholder="08:30",
+        help="24-hour clock. Used by Scheduler.sort_by_time(). Leave blank for no preference.",
     )
 
 anchor = st.checkbox("Anchor to a fixed start time")
@@ -114,6 +121,7 @@ if st.button("Add task"):
             frequency=frequency,
             weekdays=weekdays if frequency == "weekly" else [],
             fixed_time=fixed_time,
+            time=preferred_time.strip(),
         )
     )
 
@@ -140,19 +148,31 @@ def _when(task: Task) -> str:
     return "daily"
 
 
-# Build the display table by walking owner -> pets -> tasks directly.
+# Collect every task (flattened) and remember each one's pet. Task is an
+# unhashable dataclass, so key the lookup by id() rather than the object.
+all_tasks = [task for pet in owner.pets for task in pet.tasks]
+pet_by_task = {id(task): pet for pet in owner.pets for task in pet.tasks}
+
+sort_by_time = st.checkbox("Sort tasks by preferred time")
+if sort_by_time:
+    # Delegate to the Scheduler's method so the UI exercises the real logic.
+    scheduler = Scheduler(
+        available_minutes=owner.available_minutes, day_start=owner.day_start
+    )
+    all_tasks = scheduler.sort_by_time(all_tasks)
+
 task_rows = [
     {
-        "pet": pet.name,
+        "pet": pet_by_task[id(task)].name,
         "title": task.title,
         "duration_minutes": task.duration_minutes,
         "priority": task.priority,
         "when": _when(task),
+        "time": task.time or "—",
         "fixed_time": task.fixed_time.strftime("%I:%M %p") if task.fixed_time else "—",
         "done": task.done,
     }
-    for pet in owner.pets
-    for task in pet.tasks
+    for task in all_tasks
 ]
 
 if task_rows:
