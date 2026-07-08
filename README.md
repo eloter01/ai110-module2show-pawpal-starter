@@ -12,6 +12,18 @@ A busy pet owner needs help staying consistent with pet care. They want an assis
 
 Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
 
+## ✨ Features
+
+The scheduling logic lives in [`pawpal_system.py`](pawpal_system.py). Each feature is a small, independently tested algorithm:
+
+- **Priority-based scheduling** — `make_plan()` orders tasks high → medium → low priority, breaking ties by shorter duration (`Scheduler._sort()`), then fits them into the day's minute budget.
+- **Sorting by time** — `Scheduler.sort_by_time()` reorders tasks chronologically by their `"HH:MM"` preferred time (plain string comparison on zero-padded 24-hour times — no datetime parsing).
+- **Time-budget fitting with explanations** — `Scheduler._fit()` places tasks within `available_minutes` and records a human-readable reason for anything skipped (e.g. `"needs 200 min, only 60 left"`).
+- **Anchored (fixed-time) tasks** — tasks with a `fixed_time` are pinned to that clock time and reserve the slot; floating tasks flow around them, and two anchors competing for the same slot are resolved by skipping the loser with an overlap reason.
+- **Conflict warnings** — `Scheduler.detect_conflicts()` flags two or more tasks sharing the same preferred time (same or different pets) and returns warning strings instead of crashing; surfaced in the UI as `st.warning`.
+- **Daily & weekly recurrence** — completing a recurring task (`Task.mark_complete()`) spawns its next occurrence: **+1 day** for daily, **+7 days** for weekly (`Task.next_occurrence()`). Weekly tasks are only due on their listed weekdays.
+- **Filtering** — `Owner.filter_tasks()` narrows `(Pet, Task)` pairs by completion status and/or pet name, and `Scheduler._is_due()` keeps only tasks that actually occur on the target day.
+
 ## What you will build
 
 Your final app should:
@@ -65,10 +77,18 @@ pytest
 pytest --cov
 ```
 
-Sample test output:
+Sample test output: Confidence Level 5
 
 ```
-# Paste your pytest output here
+===================================================================================== test session starts =====================================================================================
+platform win32 -- Python 3.12.3, pytest-9.1.1, pluggy-1.6.0
+rootdir: C:\Users\elote\Repositories\CodePath Foundations of AI Engineering\ai110-module2show-pawpal-starter
+plugins: anyio-4.14.1
+collected 34 items                                                                                                                                                                             
+
+tests\test_pawpal.py ..................................                                                                                                                                  [100%]
+
+===================================================================================== 34 passed in 0.05s ======================================================================================
 ```
 
 ## 📐 Smarter Scheduling
@@ -123,12 +143,102 @@ behaviors. Each is a small, independently testable method in
 
 ## 📸 Demo Walkthrough
 
-Describe your app in numbered steps so a reader can follow along without watching a video:
+### What you can do in the app
 
-1. <!-- Describe this step -->
-2. <!-- Describe this step -->
-3. <!-- Describe this step -->
-4. <!-- Describe this step -->
-5. <!-- Add more steps as needed -->
+Launch the Streamlit UI with:
 
-**Screenshot or video** *(optional)*: <!-- Insert a screenshot or link to a demo video here -->
+```bash
+streamlit run app.py
+```
+
+The single-page app lets a user:
+
+- **Set up an owner and pets** — enter the owner's name and add one or more pets (name + species). Pets persist across Streamlit reruns via `st.session_state`.
+- **Add tasks to a pet** — title, duration, priority (low/medium/high), frequency (daily/weekly, with weekday picker), an optional preferred time (`HH:MM`), and an optional fixed anchor time.
+- **Mark tasks complete** — completing a recurring task automatically schedules its next occurrence.
+- **Filter and sort the task table** — narrow by completion status and/or pet, and optionally sort by preferred time. The table is rendered with `st.table`.
+- **See conflict warnings** — if two tasks share the same preferred time, an `st.warning` appears; otherwise an `st.success` confirms the schedule is clean.
+- **Generate today's schedule** — builds a `DailyPlan`, showing scheduled tasks with start times plus a "Skipped" table explaining anything that didn't fit.
+
+### Example workflow
+
+1. Enter owner **Edwin** and click **Add pet** to add **Rex** (dog) and **Whiskers** (cat).
+2. Add tasks — e.g. Rex's *Morning walk* (30 min, high) and *Midday meds* (5 min, high, preferred `12:15`), and Whiskers' *Lunch feed* (10 min, medium, preferred `12:15`).
+3. Notice the **conflict warning**: both 12:15 tasks trigger `⚠️ Time conflict at 12:15: …`.
+4. Toggle **Sort tasks by preferred time** to reorder the table chronologically.
+5. Click **Generate schedule** to see today's plan with assigned start times, and any over-budget task listed under **Skipped** with a reason.
+6. **Mark a task complete** — a recurring task spawns its next occurrence (daily +1 day, weekly +7 days).
+
+### Key Scheduler behaviors on display
+
+- **Sorting** — the table can be sorted by time (`sort_by_time`); the generated plan orders by priority then duration (`_sort`).
+- **Conflict warnings** — `detect_conflicts` surfaces same-time clashes without crashing.
+- **Recurrence** — completing daily/weekly tasks generates the next occurrence.
+- **Budget fitting** — tasks that exceed `available_minutes` are skipped with an explanation.
+
+### Sample CLI output
+
+`main.py` is a terminal demo that exercises the same backend without Streamlit. Running `python main.py` produces:
+
+```text
+PawPal+ - Edwin  (2026-07-07)
+============================================
+
+All tasks, as entered:
+----------------------
+  18:00  Rex        Evening walk       [high  ] due ---------- (todo)
+  07:30  Rex        Breakfast          [high  ] due ---------- (done)
+  12:15  Rex        Midday meds        [high  ] due ---------- (todo)
+  12:15  Whiskers   Lunch feed         [medium] due ---------- (todo)
+  09:00  Whiskers   Clean litter box   [low   ] due ---------- (todo)
+
+All tasks, sorted by time (sort_by_time):
+-----------------------------------------
+  07:30  Rex        Breakfast          [high  ] due ---------- (done)
+  09:00  Whiskers   Clean litter box   [low   ] due ---------- (todo)
+  12:15  Rex        Midday meds        [high  ] due ---------- (todo)
+  12:15  Whiskers   Lunch feed         [medium] due ---------- (todo)
+  18:00  Rex        Evening walk       [high  ] due ---------- (todo)
+
+Pending only (filter_tasks done=False):
+---------------------------------------
+  18:00  Rex        Evening walk       [high  ] due ---------- (todo)
+  12:15  Rex        Midday meds        [high  ] due ---------- (todo)
+  12:15  Whiskers   Lunch feed         [medium] due ---------- (todo)
+  09:00  Whiskers   Clean litter box   [low   ] due ---------- (todo)
+
+Completed only (filter_tasks done=True):
+----------------------------------------
+  07:30  Rex        Breakfast          [high  ] due ---------- (done)
+
+Rex's tasks (filter_tasks pet_name='Rex'):
+------------------------------------------
+  18:00  Rex        Evening walk       [high  ] due ---------- (todo)
+  07:30  Rex        Breakfast          [high  ] due ---------- (done)
+  12:15  Rex        Midday meds        [high  ] due ---------- (todo)
+
+Whiskers' pending, sorted by time (filter + sort):
+--------------------------------------------------
+  09:00  Whiskers   Clean litter box   [low   ] due ---------- (todo)
+  12:15  Whiskers   Lunch feed         [medium] due ---------- (todo)
+
+Conflict check (detect_conflicts):
+--------------------------------------------
+  WARNING: Time conflict at 12:15: Rex's 'Midday meds', Whiskers's 'Lunch feed'
+
+Completing recurring tasks (today = 2026-07-07)
+--------------------------------------------
+  Rex: 'Evening walk' (daily) done -> next occurrence due 2026-07-08
+  Rex: 'Midday meds' (daily) done -> next occurrence due 2026-07-08
+  Whiskers: 'Lunch feed' (daily) done -> next occurrence due 2026-07-08
+  Whiskers: 'Clean litter box' (daily) done -> next occurrence due 2026-07-08
+  Whiskers: 'Weekly groom' (weekly) done -> next occurrence due 2026-07-14
+
+Pending after completion (next occurrences):
+--------------------------------------------
+  18:00  Rex        Evening walk       [high  ] due 2026-07-08 (todo)
+  12:15  Rex        Midday meds        [high  ] due 2026-07-08 (todo)
+  12:15  Whiskers   Lunch feed         [medium] due 2026-07-08 (todo)
+  09:00  Whiskers   Clean litter box   [low   ] due 2026-07-08 (todo)
+  10:00  Whiskers   Weekly groom       [low   ] due 2026-07-14 (todo)
+```
