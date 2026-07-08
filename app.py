@@ -203,6 +203,19 @@ elif owner.all_tasks():
 else:
     st.info("No tasks yet. Add one above.")
 
+# Surface preferred-time clashes the Scheduler detects. detect_conflicts()
+# never raises — an empty list means "all clear" — so we render a st.warning
+# per clashing time and, when there are none, a reassuring st.success.
+conflict_scheduler = Scheduler(
+    available_minutes=owner.available_minutes, day_start=owner.day_start
+)
+conflicts = conflict_scheduler.detect_conflicts(owner.all_tasks())
+if conflicts:
+    for warning in conflicts:
+        st.warning(f"⚠️ {warning}")
+elif owner.all_tasks():
+    st.success("✅ No time conflicts — every preferred time is unique.")
+
 st.divider()
 
 st.subheader("Build Schedule")
