@@ -73,14 +73,53 @@ Sample test output:
 
 ## 📐 Smarter Scheduling
 
-> Fill in once you've implemented scheduling logic.
+Beyond the basic daily plan, PawPal+ implements four "smarter" scheduling
+behaviors. Each is a small, independently testable method in
+[`pawpal_system.py`](pawpal_system.py).
 
 | Feature | Method(s) | Notes |
 |---------|-----------|-------|
-| Task sorting | | e.g., by priority, duration |
-| Filtering | | e.g., skip tasks if time runs out |
-| Conflict handling | | e.g., overlapping time slots |
-| Recurring tasks | | e.g., daily vs. weekly |
+| Task sorting | `Scheduler._sort()`, `Scheduler.sort_by_time()` | Plan order is high-priority-first, ties broken by shorter duration; `sort_by_time()` orders tasks by their `"HH:MM"` preferred time |
+| Filtering | `Owner.filter_tasks()`, `Scheduler._is_due()`, `Scheduler._fit()` | Filter by pet and/or completion status; only due tasks are planned; tasks over the time budget are skipped with a reason |
+| Conflict detection | `Scheduler.find_time_conflicts()`, `Scheduler.detect_conflicts()` | Flags tasks sharing a time slot and returns a warning instead of crashing |
+| Recurring tasks | `Task.mark_complete()`, `Task.next_occurrence()` | Completing a daily/weekly task spawns its next occurrence |
+
+### Sorting behavior
+
+- **`Scheduler.sort_by_time(tasks)`** returns tasks ordered by their `time`
+  attribute (a `"HH:MM"` 24-hour string). Zero-padded times sort chronologically
+  under a plain string comparison, so a single `sorted()` with a lambda key is
+  enough — no datetime parsing.
+- **`Scheduler._sort(pet_tasks)`** is the ordering used inside `make_plan()`:
+  highest priority first, breaking ties by shorter duration.
+
+### Filtering behavior
+
+- **`Owner.filter_tasks(done=..., pet_name=...)`** returns `(Pet, Task)` pairs
+  narrowed by completion status and/or pet name. Both filters are optional and
+  combine (AND); with no arguments it equals `all_tasks()`.
+- **`Scheduler._is_due(task, day)`** keeps only tasks that actually occur on the
+  target day — daily tasks always, weekly tasks only on their listed weekdays,
+  and never a task already marked done.
+- **`Scheduler._fit(...)`** skips any task that would exceed the day's time
+  budget, recording a human-readable reason in `DailyPlan.skipped`.
+
+### Conflict detection
+
+- **`Scheduler.find_time_conflicts(pet_tasks)`** groups tasks that share the same
+  preferred `time` — whether on the same pet or different pets — returning only
+  the times with two or more tasks.
+- **`Scheduler.detect_conflicts(pet_tasks)`** is the lightweight, non-crashing
+  entry point: it returns a list of warning strings (empty if there are none),
+  so the app can warn the owner rather than raise an error.
+
+### Recurring task logic
+
+- **`Task.mark_complete(today=None)`** marks a task done and, if it recurs,
+  returns a fresh not-done `Task` for the next occurrence (the caller adds it to
+  the pet's list). Non-recurring tasks return `None`.
+- **`Task.next_occurrence(today=None)`** computes that successor's due date with
+  `timedelta`: **+1 day** for `"daily"`, **+7 days** for `"weekly"`.
 
 ## 📸 Demo Walkthrough
 
