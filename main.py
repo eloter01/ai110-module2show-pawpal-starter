@@ -24,9 +24,10 @@ def print_tasks(heading: str, pairs: list[tuple]) -> None:
     for pet, task in pairs:
         clock = task.time or "--:--"
         flag = "done" if task.done else "todo"
+        due = task.due_date.isoformat() if task.due_date else "----------"
         print(
             f"  {clock}  {pet.name:<10} {task.title:<18} "
-            f"[{task.priority:<6}] ({flag})"
+            f"[{task.priority:<6}] due {due} ({flag})"
         )
     print()
 
@@ -87,6 +88,27 @@ def main() -> None:
         "Whiskers' pending, sorted by time (filter + sort):",
         sorted_pairs(scheduler, owner.filter_tasks(done=False, pet_name="Whiskers")),
     )
+
+    # 6) Recurrence: completing a recurring task spawns its next occurrence.
+    # A weekly task on Whiskers to show the +7 day step alongside a daily +1.
+    whiskers.tasks.append(
+        Task("Weekly groom", 20, priority="low", frequency="weekly", time="10:00")
+    )
+    today = date.today()
+    print(f"Completing recurring tasks (today = {today})")
+    print("-" * 44)
+    for pet, task in list(owner.filter_tasks(done=False)):
+        successor = task.mark_complete(today=today)
+        if successor is not None:
+            pet.tasks.append(successor)
+            print(
+                f"  {pet.name}: '{task.title}' ({task.frequency}) done "
+                f"-> next occurrence due {successor.due_date}"
+            )
+    print()
+
+    # The spawned occurrences are now the pending tasks, each with a due date.
+    print_tasks("Pending after completion (next occurrences):", owner.filter_tasks(done=False))
 
 
 if __name__ == "__main__":
