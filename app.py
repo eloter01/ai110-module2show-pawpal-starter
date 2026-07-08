@@ -135,8 +135,16 @@ if pending:
         format_func=lambda i: f"{pending[i][0].name} — {pending[i][1].title}",
     )
     if st.button("Mark done"):
-        pending[done_idx][1].mark_complete()
-        st.success(f"Marked '{pending[done_idx][1].title}' done.")
+        pet_done, task_done = pending[done_idx]
+        successor = task_done.mark_complete()  # spawns the next occurrence if recurring
+        if successor is not None:
+            pet_done.tasks.append(successor)
+            st.success(
+                f"Marked '{task_done.title}' done. "
+                f"Next occurrence scheduled for {successor.due_date}."
+            )
+        else:
+            st.success(f"Marked '{task_done.title}' done.")
 
 
 def _when(task: Task) -> str:
@@ -181,6 +189,7 @@ task_rows = [
         "when": _when(task),
         "time": task.time or "—",
         "fixed_time": task.fixed_time.strftime("%I:%M %p") if task.fixed_time else "—",
+        "due": task.due_date.isoformat() if task.due_date else "—",
         "done": task.done,
     }
     for pet, task in pairs
