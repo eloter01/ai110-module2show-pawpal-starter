@@ -39,6 +39,9 @@ class Task:
     # Anchored tasks (e.g. "meds at 8:00 AM") must happen at a set clock time.
     # None means the task floats and the Scheduler picks its slot.
     fixed_time: time | None = None
+    # Preferred time of day as an "HH:MM" 24-hour string (e.g. "08:30"), used by
+    # Scheduler.sort_by_time(). Empty string means no preference.
+    time: str = ""
 
     def mark_complete(self) -> None:
         """Mark this task as done."""
@@ -133,6 +136,15 @@ class Scheduler:
         if task.frequency == "weekly":
             return day.weekday() in task.weekdays
         return True
+
+    def sort_by_time(self, tasks: list[Task]) -> list[Task]:
+        """Return tasks ordered by their ``time`` attribute ("HH:MM").
+
+        Zero-padded 24-hour strings sort chronologically under a plain string
+        comparison, so a lambda key on ``task.time`` is enough — no parsing
+        into datetime needed.
+        """
+        return sorted(tasks, key=lambda task: task.time)
 
     def _sort(self, pet_tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
         """High priority first; break ties by shorter duration."""
