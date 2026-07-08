@@ -1,0 +1,60 @@
+classDiagram
+    class Task {
+        +str title
+        +int duration_minutes
+        +str priority
+        +str frequency
+        +List~int~ weekdays
+        +bool done
+        +time fixed_time
+        +str time
+        +date due_date
+        +mark_complete(today) Task
+        +next_occurrence(today) Task
+    }
+
+    class Pet {
+        +str name
+        +str species
+        +List~Task~ tasks
+    }
+
+    class Owner {
+        +str name
+        +List~Pet~ pets
+        +int available_minutes
+        +time day_start
+        +add_pet(name, species) Pet
+        +all_tasks() List~(Pet, Task)~
+        +filter_tasks(done, pet_name) List~(Pet, Task)~
+    }
+
+    class DailyPlan {
+        +date day
+        +List~(time, Pet, Task)~ scheduled
+        +List~(Pet, Task, str)~ skipped
+    }
+
+    class Scheduler {
+        -dict _PRIORITY_RANK
+        +int available_minutes
+        +time day_start
+        +make_plan(pet_tasks, day) DailyPlan
+        +sort_by_time(tasks) List~Task~
+        +find_time_conflicts(pet_tasks) dict
+        +detect_conflicts(pet_tasks) List~str~
+        -_is_due(task, day) bool
+        -_sort(pet_tasks) List~(Pet, Task)~
+        -_fit(pet_tasks, day) DailyPlan
+        -_budget_reason(task, remaining) str
+        -_next_free(cursor, duration, occupied) datetime
+    }
+
+    Owner "1" *-- "*" Pet : has
+    Pet "1" *-- "*" Task : has
+    Scheduler ..> Owner : reads prefs from
+    Scheduler ..> Pet : schedules tasks for
+    Scheduler ..> Task : orders / checks conflicts
+    Scheduler ..> DailyPlan : produces
+    DailyPlan ..> Pet : references
+    DailyPlan ..> Task : references
