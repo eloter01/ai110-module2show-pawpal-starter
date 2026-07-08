@@ -2,7 +2,7 @@
 
 from datetime import date, time
 
-from pawpal_system import Pet, Scheduler, Task
+from pawpal_system import Owner, Pet, Scheduler, Task
 
 
 # A fixed reference day so recurrence tests don't depend on "today".
@@ -169,3 +169,61 @@ def test_sort_by_time_does_not_mutate_input():
     scheduler.sort_by_time(tasks)
 
     assert [t.title for t in tasks] == ["Late", "Early"]
+
+
+# --- Owner.filter_tasks: narrow by completion status and/or pet name ---
+
+def _owner_with_two_pets() -> Owner:
+    """Owner with Mochi (1 done, 1 pending) and Rex (1 pending)."""
+    owner = Owner(name="Jordan")
+    mochi = owner.add_pet("Mochi", "cat")
+    rex = owner.add_pet("Rex", "dog")
+    fed = Task(title="Feed Mochi", duration_minutes=10)
+    fed.mark_complete()
+    mochi.tasks.extend([fed, Task(title="Brush Mochi", duration_minutes=5)])
+    rex.tasks.append(Task(title="Walk Rex", duration_minutes=30))
+    return owner
+
+
+def test_filter_no_args_matches_all_tasks():
+    """With no filters, filter_tasks() equals all_tasks()."""
+    owner = _owner_with_two_pets()
+
+    assert owner.filter_tasks() == owner.all_tasks()
+
+
+def test_filter_by_done_status():
+    """done=True keeps only completed tasks; done=False only pending ones."""
+    owner = _owner_with_two_pets()
+
+    completed = owner.filter_tasks(done=True)
+    pending = owner.filter_tasks(done=False)
+
+    assert [t.title for _, t in completed] == ["Feed Mochi"]
+    assert sorted(t.title for _, t in pending) == ["Brush Mochi", "Walk Rex"]
+
+
+def test_filter_by_pet_name():
+    """pet_name keeps only that pet's tasks."""
+    owner = _owner_with_two_pets()
+
+    rex_tasks = owner.filter_tasks(pet_name="Rex")
+
+    assert [pet.name for pet, _ in rex_tasks] == ["Rex"]
+    assert [t.title for _, t in rex_tasks] == ["Walk Rex"]
+
+
+def test_filter_by_pet_name_and_done_combine():
+    """Both filters apply together (AND)."""
+    owner = _owner_with_two_pets()
+
+    result = owner.filter_tasks(done=False, pet_name="Mochi")
+
+    assert [t.title for _, t in result] == ["Brush Mochi"]
+
+
+def test_filter_unknown_pet_returns_empty():
+    """An unmatched pet name yields no pairs."""
+    owner = _owner_with_two_pets()
+
+    assert owner.filter_tasks(pet_name="Nobody") == []
