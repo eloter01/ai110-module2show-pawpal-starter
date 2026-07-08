@@ -33,9 +33,12 @@ class Task:
     title: str
     duration_minutes: int
     priority: str = "medium"      # "low" | "medium" | "high"
-    frequency: str = "daily"      # "daily" | "weekly"  (recurrence logic later)
+    frequency: str = "daily"      # "daily" | "weekly"
     weekdays: list[int] = field(default_factory=list)  # weekly only; 0=Mon..6=Sun
     done: bool = False
+    # Anchored tasks (e.g. "meds at 8:00 AM") must happen at a set clock time.
+    # None means the task floats and the Scheduler picks its slot.
+    fixed_time: time | None = None
 
     def mark_complete(self) -> None:
         """Mark this task as done."""
@@ -110,9 +113,26 @@ class Scheduler:
         self.day_start = day_start                  # when scheduling begins
 
     def make_plan(self, pet_tasks: list[tuple[Pet, Task]], day: date) -> DailyPlan:
-        """The one public method: (Pet, Task) pairs in, scheduled plan out."""
-        ordered = self._sort(pet_tasks)
+        """The one public method: (Pet, Task) pairs in, scheduled plan out.
+
+        Tasks are first filtered to those actually due on ``day`` (recurrence)
+        and not already done, then ordered, then fitted into the time budget.
+        """
+        due = [pt for pt in pet_tasks if self._is_due(pt[1], day)]
+        ordered = self._sort(due)
         return self._fit(ordered, day)
+
+    def _is_due(self, task: Task, day: date) -> bool:
+        """Whether ``task`` should appear on ``day``.
+
+        Already-done tasks are never due. Daily tasks are always due; weekly
+        tasks are due only on their listed weekdays (0=Mon..6=Sun).
+        """
+        if task.done:
+            return False
+        if task.frequency == "weekly":
+            return day.weekday() in task.weekdays
+        return True
 
     def _sort(self, pet_tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
         """High priority first; break ties by shorter duration."""
@@ -125,26 +145,78 @@ class Scheduler:
         )
 
     def _fit(self, pet_tasks: list[tuple[Pet, Task]], day: date) -> DailyPlan:
-        """Assign start times in order, skip tasks that exceed the budget.
+        """Assign start times, skip tasks that exceed the budget.
 
-        Records a reason for each skipped task so DailyPlan can explain itself.
+        Anchored tasks (``fixed_time`` set) are placed at their clock time and
+        reserve that slot; floating tasks then flow from ``day_start``, stepping
+        over any reserved slot so they never overlap an anchor. Both kinds draw
+        from the same minute budget. Records a reason for each skipped task so
+        DailyPlan can explain itself. Scheduled items come back time-ordered.
         """
         plan = DailyPlan(day=day)
         used_minutes = 0
-        cursor = datetime.combine(day, self.day_start)
+        occupied: list[tuple[datetime, datetime]] = []  # reserved anchor slots
 
-        for pet, task in pet_tasks:
+        anchored = [pt for pt in pet_tasks if pt[1].fixed_time is not None]
+        floating = [pt for pt in pet_tasks if pt[1].fixed_time is None]
+
+        # Place anchors in chronological order so earlier ones reserve first.
+        anchored.sort(key=lambda pt: pt[1].fixed_time)  # type: ignore[arg-type,return-value]
+        for pet, task in anchored:
             remaining = self.available_minutes - used_minutes
             if task.duration_minutes > remaining:
-                reason = (
-                    f"needs {task.duration_minutes} min, only {remaining} of "
-                    f"{self.available_minutes} min left"
-                )
-                plan.skipped.append((pet, task, reason))
+                plan.skipped.append((pet, task, self._budget_reason(task, remaining)))
                 continue
 
+            start = datetime.combine(day, task.fixed_time)  # type: ignore[arg-type]
+            end = start + timedelta(minutes=task.duration_minutes)
+            if any(start < o_end and end > o_start for o_start, o_end in occupied):
+                plan.skipped.append(
+                    (pet, task, f"fixed time {task.fixed_time:%I:%M %p} overlaps another task")
+                )
+                continue
+
+            plan.scheduled.append((start.time(), pet, task))
+            occupied.append((start, end))
+            used_minutes += task.duration_minutes
+
+        # Flow floating tasks from day_start, stepping over reserved anchor slots.
+        cursor = datetime.combine(day, self.day_start)
+        for pet, task in floating:
+            remaining = self.available_minutes - used_minutes
+            if task.duration_minutes > remaining:
+                plan.skipped.append((pet, task, self._budget_reason(task, remaining)))
+                continue
+
+            cursor = self._next_free(cursor, task.duration_minutes, occupied)
             plan.scheduled.append((cursor.time(), pet, task))
             cursor += timedelta(minutes=task.duration_minutes)
             used_minutes += task.duration_minutes
 
+        plan.scheduled.sort(key=lambda item: item[0])  # present in time order
         return plan
+
+    def _budget_reason(self, task: Task, remaining: int) -> str:
+        """Explain why a task didn't fit the remaining time budget."""
+        return (
+            f"needs {task.duration_minutes} min, only {remaining} of "
+            f"{self.available_minutes} min left"
+        )
+
+    def _next_free(
+        self,
+        cursor: datetime,
+        duration_minutes: int,
+        occupied: list[tuple[datetime, datetime]],
+    ) -> datetime:
+        """Earliest start at/after ``cursor`` that clears every reserved slot."""
+        end = cursor + timedelta(minutes=duration_minutes)
+        moved = True
+        while moved:
+            moved = False
+            for o_start, o_end in occupied:
+                if cursor < o_end and end > o_start:  # would overlap this anchor
+                    cursor = o_end
+                    end = cursor + timedelta(minutes=duration_minutes)
+                    moved = True
+        return cursor
