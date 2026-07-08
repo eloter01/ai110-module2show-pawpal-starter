@@ -1,5 +1,5 @@
 
-from datetime import date
+from datetime import date, time
 
 import streamlit as st
 
@@ -80,6 +80,8 @@ if owner.pets:
 st.markdown("### Tasks")
 st.caption("Add a few tasks. These are stored as real Task objects on the pet.")
 
+WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
 col1, col2, col3 = st.columns(3)
 with col1:
     task_title = st.text_input("Task title", value="Morning walk")
@@ -88,11 +90,55 @@ with col2:
 with col3:
     priority = st.selectbox("Priority", ["low", "medium", "high"], index=2)
 
+col4, col5 = st.columns(2)
+with col4:
+    frequency = st.selectbox("Frequency", ["daily", "weekly"])
+with col5:
+    weekdays = st.multiselect(
+        "On weekdays (weekly only)",
+        options=list(range(7)),
+        format_func=lambda i: WEEKDAY_LABELS[i],
+        disabled=(frequency != "weekly"),
+    )
+
+anchor = st.checkbox("Anchor to a fixed start time")
+fixed_time = st.time_input("Fixed start time", value=time(8, 0)) if anchor else None
+
 if st.button("Add task"):
     pet = get_or_create_pet(owner, pet_name, species)
     pet.tasks.append(
-        Task(title=task_title, duration_minutes=int(duration), priority=priority)
+        Task(
+            title=task_title,
+            duration_minutes=int(duration),
+            priority=priority,
+            frequency=frequency,
+            weekdays=weekdays if frequency == "weekly" else [],
+            fixed_time=fixed_time,
+        )
     )
+
+# Let the owner mark a pending task complete. Placed above the table so the
+# table below reflects the change in the same rerun (no one-click lag).
+pending = [(pet, task) for pet in owner.pets for task in pet.tasks if not task.done]
+if pending:
+    done_idx = st.selectbox(
+        "Mark a task complete",
+        options=list(range(len(pending))),
+        format_func=lambda i: f"{pending[i][0].name} — {pending[i][1].title}",
+    )
+    if st.button("Mark done"):
+        pending[done_idx][1].mark_complete()
+        st.success(f"Marked '{pending[done_idx][1].title}' done.")
+
+
+def _when(task: Task) -> str:
+    """Human-readable recurrence for the task table."""
+    if task.frequency == "weekly":
+        if not task.weekdays:
+            return "weekly (no days set)"
+        return "weekly: " + ", ".join(WEEKDAY_LABELS[i] for i in task.weekdays)
+    return "daily"
+
 
 # Build the display table by walking owner -> pets -> tasks directly.
 task_rows = [
@@ -101,6 +147,8 @@ task_rows = [
         "title": task.title,
         "duration_minutes": task.duration_minutes,
         "priority": task.priority,
+        "when": _when(task),
+        "fixed_time": task.fixed_time.strftime("%I:%M %p") if task.fixed_time else "—",
         "done": task.done,
     }
     for pet in owner.pets
