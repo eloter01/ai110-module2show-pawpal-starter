@@ -282,3 +282,66 @@ def test_next_occurrence_does_not_mark_done():
 
     assert task.done is False  # untouched
     assert successor.due_date == MONDAY + timedelta(days=1)
+
+
+# --- Conflict detection: two tasks scheduled at the same time ---
+
+def test_find_time_conflicts_flags_same_time_across_pets():
+    """Two tasks at 12:15 (different pets) are a conflict; a lone time is not."""
+    owner = Owner(name="Jordan")
+    rex = owner.add_pet("Rex", "dog")
+    cat = owner.add_pet("Mochi", "cat")
+    rex.tasks.append(Task("Meds", 5, time="12:15"))
+    cat.tasks.append(Task("Lunch", 10, time="12:15"))
+    rex.tasks.append(Task("Walk", 20, time="18:00"))  # no clash
+    scheduler = Scheduler(available_minutes=120)
+
+    conflicts = scheduler.find_time_conflicts(owner.all_tasks())
+
+    assert set(conflicts) == {"12:15"}
+    assert {t.title for _, t in conflicts["12:15"]} == {"Meds", "Lunch"}
+
+
+def test_find_time_conflicts_same_pet():
+    """Two tasks at the same time on the SAME pet also conflict."""
+    owner = Owner(name="Jordan")
+    rex = owner.add_pet("Rex", "dog")
+    rex.tasks.append(Task("Meds", 5, time="08:00"))
+    rex.tasks.append(Task("Walk", 20, time="08:00"))
+    scheduler = Scheduler(available_minutes=120)
+
+    conflicts = scheduler.find_time_conflicts(owner.all_tasks())
+
+    assert set(conflicts) == {"08:00"}
+    assert len(conflicts["08:00"]) == 2
+
+
+def test_no_conflict_when_times_differ_or_unset():
+    """Distinct times and blank times ("") never register as conflicts."""
+    owner = Owner(name="Jordan")
+    pet = owner.add_pet("Mochi", "cat")
+    pet.tasks.append(Task("A", 5, time="08:00"))
+    pet.tasks.append(Task("B", 5, time="09:00"))
+    pet.tasks.append(Task("C", 5, time=""))  # no preferred time
+    pet.tasks.append(Task("D", 5, time=""))  # blank does not clash with blank
+    scheduler = Scheduler(available_minutes=120)
+
+    assert scheduler.find_time_conflicts(owner.all_tasks()) == {}
+    assert scheduler.detect_conflicts(owner.all_tasks()) == []
+
+
+def test_detect_conflicts_returns_warning_not_exception():
+    """detect_conflicts returns a warning string per clash; it never raises."""
+    owner = Owner(name="Jordan")
+    rex = owner.add_pet("Rex", "dog")
+    cat = owner.add_pet("Mochi", "cat")
+    rex.tasks.append(Task("Meds", 5, time="12:15"))
+    cat.tasks.append(Task("Lunch", 10, time="12:15"))
+    scheduler = Scheduler(available_minutes=120)
+
+    warnings = scheduler.detect_conflicts(owner.all_tasks())
+
+    assert len(warnings) == 1
+    assert warnings[0].startswith("Time conflict at 12:15:")
+    assert "Rex's 'Meds'" in warnings[0]
+    assert "Mochi's 'Lunch'" in warnings[0]
