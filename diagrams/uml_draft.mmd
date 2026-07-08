@@ -31,11 +31,12 @@ classDiagram
 
     class DailyPlan {
         +date day
-        +List scheduled
-        +List skipped
+        +List~(time, Pet, Task)~ scheduled
+        +List~(Pet, Task, str)~ skipped
     }
 
     class Scheduler {
+        -dict _PRIORITY_RANK
         +int available_minutes
         +time day_start
         +make_plan(pet_tasks, day) DailyPlan
@@ -51,5 +52,9 @@ classDiagram
 
     Owner "1" *-- "*" Pet : has
     Pet "1" *-- "*" Task : has
-    Owner ..> Scheduler : configures
+    Scheduler ..> Owner : reads prefs from
+    Scheduler ..> Pet : schedules tasks for
+    Scheduler ..> Task : orders / checks conflicts
     Scheduler ..> DailyPlan : produces
+    DailyPlan ..> Pet : references
+    DailyPlan ..> Task : references
