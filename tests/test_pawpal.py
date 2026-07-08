@@ -142,6 +142,99 @@ def test_anchor_over_budget_is_skipped_with_reason():
     assert "min left" in reason
 
 
+# --- _sort: priority first (high>medium>low), ties broken by shorter duration ---
+
+def test_sort_orders_by_priority_high_first():
+    """High-priority tasks are scheduled ahead of medium and low."""
+    low = Task(title="Low", duration_minutes=10, priority="low")
+    high = Task(title="High", duration_minutes=10, priority="high")
+    medium = Task(title="Medium", duration_minutes=10, priority="medium")
+
+    # Added low, medium, high; the plan should come out high, medium, low.
+    plan = _plan_for([low, medium, high], MONDAY)
+
+    assert [t.title for _, _, t in plan.scheduled] == ["High", "Medium", "Low"]
+
+
+def test_sort_breaks_priority_ties_by_shorter_duration():
+    """Within the same priority, the shorter task goes first."""
+    long_high = Task(title="Long", duration_minutes=60, priority="high")
+    short_high = Task(title="Short", duration_minutes=15, priority="high")
+
+    plan = _plan_for([long_high, short_high], MONDAY)
+
+    assert [t.title for _, _, t in plan.scheduled] == ["Short", "Long"]
+
+
+def test_unknown_priority_ranks_as_medium():
+    """A task with an unrecognized priority sorts as if it were medium."""
+    weird = Task(title="Weird", duration_minutes=10, priority="urgent")
+    high = Task(title="High", duration_minutes=10, priority="high")
+    low = Task(title="Low", duration_minutes=10, priority="low")
+
+    plan = _plan_for([low, weird, high], MONDAY)
+
+    # "urgent" falls back to the medium rank, landing between high and low.
+    assert [t.title for _, _, t in plan.scheduled] == ["High", "Weird", "Low"]
+
+
+# --- Edge case: no tasks at all yields an empty (not crashing) plan ---
+
+def test_empty_task_list_returns_empty_plan():
+    """A pet with no tasks produces a plan with nothing scheduled or skipped."""
+    plan = _plan_for([], MONDAY)
+
+    assert plan.day == MONDAY
+    assert plan.scheduled == []
+    assert plan.skipped == []
+
+
+def test_owner_with_no_pets_has_no_tasks():
+    """all_tasks() on a petless owner is empty, and scheduling it is empty."""
+    owner = Owner(name="Jordan")
+    scheduler = Scheduler(available_minutes=120)
+
+    plan = scheduler.make_plan(owner.all_tasks(), MONDAY)
+
+    assert owner.all_tasks() == []
+    assert plan.scheduled == []
+    assert plan.skipped == []
+
+
+# --- Edge case: two anchored tasks at the exact same clock time collide ---
+
+def test_two_anchors_at_same_time_one_scheduled_one_skipped():
+    """When two fixed_time tasks claim the same slot, the later-sorted one is
+    skipped with an overlap reason rather than double-booking the time."""
+    meds = Task(title="Meds", duration_minutes=15, fixed_time=time(8, 0))
+    shot = Task(title="Shot", duration_minutes=15, fixed_time=time(8, 0))
+
+    plan = _plan_for([meds, shot], MONDAY, available_minutes=120)
+
+    assert len(plan.scheduled) == 1
+    assert len(plan.skipped) == 1
+    _, skipped_task, reason = plan.skipped[0]
+    assert "overlaps another task" in reason
+    # The two tasks compete for exactly one 08:00 slot.
+    assert plan.scheduled[0][0] == time(8, 0)
+
+
+# --- Edge case: a floating task over the budget is skipped with a reason ---
+
+def test_floating_task_over_budget_is_skipped_with_reason():
+    """A floating task that busts the remaining budget is skipped, not placed."""
+    big = Task(title="Marathon walk", duration_minutes=200)
+
+    plan = _plan_for([big], MONDAY, available_minutes=60)
+
+    assert plan.scheduled == []
+    assert len(plan.skipped) == 1
+    _, task, reason = plan.skipped[0]
+    assert task.title == "Marathon walk"
+    assert "needs 200 min" in reason
+    assert "min left" in reason
+
+
 # --- sort_by_time: order tasks by their "HH:MM" time attribute ---
 
 def test_sort_by_time_orders_chronologically():
