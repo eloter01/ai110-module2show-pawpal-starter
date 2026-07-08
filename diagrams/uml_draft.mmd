@@ -5,6 +5,9 @@ classDiagram
         +str priority
         +str frequency
         +List~int~ weekdays
+        +bool done
+        +time fixed_time
+        +mark_complete()
     }
 
     class Pet {
@@ -31,8 +34,10 @@ classDiagram
         +int available_minutes
         +time day_start
         +make_plan(pet_tasks, day) DailyPlan
+        -_is_due(task, day) bool
         -_sort(pet_tasks) List~(Pet, Task)~
         -_fit(pet_tasks, day) DailyPlan
+        -_next_free(cursor, duration, occupied) datetime
     }
 
     Owner "1" *-- "*" Pet : has
