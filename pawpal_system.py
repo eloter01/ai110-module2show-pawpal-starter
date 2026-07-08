@@ -83,6 +83,26 @@ class Owner:
         """
         return [(pet, task) for pet in self.pets for task in pet.tasks]
 
+    def filter_tasks(
+        self,
+        *,
+        done: bool | None = None,
+        pet_name: str | None = None,
+    ) -> list[tuple[Pet, Task]]:
+        """Return (Pet, Task) pairs, optionally narrowed by completion and/or pet.
+
+        Both filters are optional and combine (AND). Leaving one as ``None``
+        means "don't filter on that", so ``filter_tasks()`` with no arguments is
+        the same as ``all_tasks()``. Keyword-only to keep call sites readable,
+        e.g. ``owner.filter_tasks(done=False, pet_name="Mochi")``.
+        """
+        pairs = self.all_tasks()
+        if done is not None:
+            pairs = [(pet, task) for pet, task in pairs if task.done == done]
+        if pet_name is not None:
+            pairs = [(pet, task) for pet, task in pairs if pet.name == pet_name]
+        return pairs
+
 
 @dataclass
 class DailyPlan:
