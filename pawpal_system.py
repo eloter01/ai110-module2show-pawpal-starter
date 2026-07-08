@@ -198,6 +198,36 @@ class Scheduler:
         """
         return sorted(tasks, key=lambda task: task.time)
 
+    def find_time_conflicts(
+        self, pet_tasks: list[tuple[Pet, Task]]
+    ) -> dict[str, list[tuple[Pet, Task]]]:
+        """Group (Pet, Task) pairs that share the same preferred ``time``.
+
+        Two or more tasks — whether on the same pet or different pets — set to
+        the same non-empty "HH:MM" time can't both happen then, so they're a
+        conflict. Tasks with no preferred time ("") are ignored. Returns
+        ``{time: [pairs]}`` for conflicting times only (2+ tasks each).
+        """
+        by_time: dict[str, list[tuple[Pet, Task]]] = {}
+        for pet, task in pet_tasks:
+            if task.time:  # skip tasks with no preferred time
+                by_time.setdefault(task.time, []).append((pet, task))
+        return {t: pairs for t, pairs in by_time.items() if len(pairs) > 1}
+
+    def detect_conflicts(self, pet_tasks: list[tuple[Pet, Task]]) -> list[str]:
+        """Lightweight conflict check: return a warning per clashing time.
+
+        Never raises — an empty list means "no conflicts". Each message names
+        the time and the pets' tasks competing for it, so the caller can warn
+        the user instead of the program crashing.
+        """
+        conflicts = self.find_time_conflicts(pet_tasks)
+        warnings = []
+        for t in sorted(conflicts):
+            names = ", ".join(f"{pet.name}'s '{task.title}'" for pet, task in conflicts[t])
+            warnings.append(f"Time conflict at {t}: {names}")
+        return warnings
+
     def _sort(self, pet_tasks: list[tuple[Pet, Task]]) -> list[tuple[Pet, Task]]:
         """High priority first; break ties by shorter duration."""
         return sorted(
