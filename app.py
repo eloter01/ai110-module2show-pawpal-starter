@@ -148,22 +148,33 @@ def _when(task: Task) -> str:
     return "daily"
 
 
-# Collect every task (flattened) and remember each one's pet. Task is an
-# unhashable dataclass, so key the lookup by id() rather than the object.
-all_tasks = [task for pet in owner.pets for task in pet.tasks]
-pet_by_task = {id(task): pet for pet in owner.pets for task in pet.tasks}
+# Filter controls: narrow the table by completion status and/or pet, then
+# fetch the matching (Pet, Task) pairs via Owner.filter_tasks().
+fcol1, fcol2 = st.columns(2)
+with fcol1:
+    status = st.selectbox("Show", ["all", "pending", "done"])
+with fcol2:
+    pet_choice = st.selectbox("Pet", ["all"] + [p.name for p in owner.pets])
+
+done_filter = {"all": None, "pending": False, "done": True}[status]
+pet_filter = None if pet_choice == "all" else pet_choice
+pairs = owner.filter_tasks(done=done_filter, pet_name=pet_filter)
 
 sort_by_time = st.checkbox("Sort tasks by preferred time")
 if sort_by_time:
-    # Delegate to the Scheduler's method so the UI exercises the real logic.
+    # Delegate to the Scheduler's method so the UI exercises the real logic,
+    # then rebuild the pairs in the sorted order (Task is unhashable, so the
+    # pet lookup is keyed by id()).
     scheduler = Scheduler(
         available_minutes=owner.available_minutes, day_start=owner.day_start
     )
-    all_tasks = scheduler.sort_by_time(all_tasks)
+    pet_by_task = {id(task): pet for pet, task in pairs}
+    ordered = scheduler.sort_by_time([task for _, task in pairs])
+    pairs = [(pet_by_task[id(task)], task) for task in ordered]
 
 task_rows = [
     {
-        "pet": pet_by_task[id(task)].name,
+        "pet": pet.name,
         "title": task.title,
         "duration_minutes": task.duration_minutes,
         "priority": task.priority,
@@ -172,12 +183,14 @@ task_rows = [
         "fixed_time": task.fixed_time.strftime("%I:%M %p") if task.fixed_time else "—",
         "done": task.done,
     }
-    for task in all_tasks
+    for pet, task in pairs
 ]
 
 if task_rows:
     st.write("Current tasks:")
     st.table(task_rows)
+elif owner.all_tasks():
+    st.info("No tasks match the current filter.")
 else:
     st.info("No tasks yet. Add one above.")
 
