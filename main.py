@@ -1,56 +1,92 @@
-"""Temporary testing ground for the PawPal+ data classes.
+"""Terminal demo for the PawPal+ sorting and filtering methods.
 
 Run with:  python main.py
 
-NOTE: Scheduler._sort/_fit and Owner.all_tasks are still NotImplementedError in
-pawpal_system.py, so this script does NOT call the scheduler. It builds the data
-model and prints a simple "Today's Schedule" by walking owner -> pets -> tasks
-directly. Swap in Scheduler.make_plan() once those methods are implemented.
+Builds an Owner with two pets whose tasks are added intentionally OUT OF ORDER
+by preferred time, then prints them back through the new methods to confirm
+they work end to end:
+
+    * Scheduler.sort_by_time()  -> tasks reordered by their "HH:MM" time
+    * Owner.filter_tasks()      -> narrowed by completion status and/or pet
 """
 
-from datetime import time, timedelta, datetime, date
+from datetime import date
 
-from pawpal_system import Owner, Pet, Task
+from pawpal_system import Owner, Scheduler, Task
+
+
+def print_tasks(heading: str, pairs: list[tuple]) -> None:
+    """Pretty-print a list of (Pet, Task) pairs under a heading."""
+    print(heading)
+    print("-" * len(heading))
+    if not pairs:
+        print("  (none)")
+    for pet, task in pairs:
+        clock = task.time or "--:--"
+        flag = "done" if task.done else "todo"
+        print(
+            f"  {clock}  {pet.name:<10} {task.title:<18} "
+            f"[{task.priority:<6}] ({flag})"
+        )
+    print()
+
+
+def sorted_pairs(scheduler: Scheduler, pairs: list[tuple]) -> list[tuple]:
+    """Sort (Pet, Task) pairs by time via Scheduler.sort_by_time().
+
+    sort_by_time() works on Task objects, so we sort the tasks and map each one
+    back to its pet. Task is an unhashable dataclass, hence the id() lookup.
+    """
+    pet_by_task = {id(task): pet for pet, task in pairs}
+    ordered = scheduler.sort_by_time([task for _, task in pairs])
+    return [(pet_by_task[id(task)], task) for task in ordered]
 
 
 def main() -> None:
-    # --- Build the data model: one Owner, two Pets, several Tasks ---
-    rex = Pet(
-        name="Rex",
-        species="dog",
-        tasks=[
-            Task(title="Morning walk", duration_minutes=30, priority="high"),
-            Task(title="Breakfast", duration_minutes=10, priority="high"),
-        ],
+    # --- Build the data model: one Owner, two Pets ---
+    owner = Owner(name="Edwin")
+    rex = owner.add_pet("Rex", "dog")
+    whiskers = owner.add_pet("Whiskers", "cat")
+
+    # Add tasks intentionally OUT OF ORDER by preferred time, so sort_by_time()
+    # has something real to reorder.
+    rex.tasks.append(Task("Evening walk", 30, priority="high", time="18:00"))
+    rex.tasks.append(Task("Breakfast", 10, priority="high", time="07:30"))
+    whiskers.tasks.append(Task("Lunch feed", 10, priority="medium", time="12:15"))
+    whiskers.tasks.append(Task("Clean litter box", 15, priority="low", time="09:00"))
+
+    # Mark one complete so the completion filter has both states to show.
+    rex.tasks[1].mark_complete()  # Breakfast -> done
+
+    scheduler = Scheduler(
+        available_minutes=owner.available_minutes, day_start=owner.day_start
     )
 
-    whiskers = Pet(
-        name="Whiskers",
-        species="cat",
-        tasks=[
-            Task(title="Feed", duration_minutes=10, priority="medium"),
-            Task(title="Clean litter box", duration_minutes=15, priority="low"),
-        ],
+    print(f"PawPal+ - {owner.name}  ({date.today()})")
+    print("=" * 44)
+    print()
+
+    # 1) As entered (deliberately unsorted).
+    print_tasks("All tasks, as entered:", owner.all_tasks())
+
+    # 2) Sorted by preferred time (sort_by_time).
+    print_tasks(
+        "All tasks, sorted by time (sort_by_time):",
+        sorted_pairs(scheduler, owner.all_tasks()),
     )
 
-    owner = Owner(name="Edwin", pets=[rex, whiskers], day_start=time(8, 0))
+    # 3) Filter by completion status (filter_tasks).
+    print_tasks("Pending only (filter_tasks done=False):", owner.filter_tasks(done=False))
+    print_tasks("Completed only (filter_tasks done=True):", owner.filter_tasks(done=True))
 
-    # --- Print "Today's Schedule" ---
-    # Assign start times naively by accumulating durations from day_start.
-    # (This is a stand-in for Scheduler until _sort/_fit are implemented.)
-    print(f"Today's Schedule for {owner.name} ({date.today()})")
-    print("=" * 40)
+    # 4) Filter by pet name (filter_tasks).
+    print_tasks("Rex's tasks (filter_tasks pet_name='Rex'):", owner.filter_tasks(pet_name="Rex"))
 
-    current = datetime.combine(date.today(), owner.day_start)
-    for pet in owner.pets:
-        for task in pet.tasks:
-            start = current.time()
-            print(
-                f"{start.strftime('%I:%M %p')}  "
-                f"{pet.name:<10} {task.title:<20} "
-                f"({task.duration_minutes} min, {task.priority})"
-            )
-            current += timedelta(minutes=task.duration_minutes)
+    # 5) Combine both filters, then sort the result by time.
+    print_tasks(
+        "Whiskers' pending, sorted by time (filter + sort):",
+        sorted_pairs(scheduler, owner.filter_tasks(done=False, pet_name="Whiskers")),
+    )
 
 
 if __name__ == "__main__":
