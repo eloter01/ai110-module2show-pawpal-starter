@@ -1,6 +1,6 @@
 """Simple smoke tests for the PawPal+ data classes and scheduler."""
 
-from datetime import date, time
+from datetime import date, time, timedelta
 
 from pawpal_system import Owner, Pet, Scheduler, Task
 
@@ -227,3 +227,58 @@ def test_filter_unknown_pet_returns_empty():
     owner = _owner_with_two_pets()
 
     assert owner.filter_tasks(pet_name="Nobody") == []
+
+
+# --- Recurrence: completing a recurring task spawns its next occurrence ---
+
+def test_daily_completion_spawns_next_day():
+    """A daily task's successor is due today + 1 day."""
+    task = Task(title="Walk", duration_minutes=20, frequency="daily")
+
+    successor = task.mark_complete(today=MONDAY)
+
+    assert task.done is True
+    assert successor is not None
+    assert successor.done is False
+    assert successor.due_date == MONDAY + timedelta(days=1)
+    assert successor.title == "Walk"
+
+
+def test_weekly_completion_spawns_next_week():
+    """A weekly task's successor is due today + 7 days."""
+    task = Task(title="Groom", duration_minutes=20, frequency="weekly", weekdays=[0])
+
+    successor = task.mark_complete(today=MONDAY)
+
+    assert successor is not None
+    assert successor.due_date == MONDAY + timedelta(days=7)
+
+
+def test_non_recurring_completion_returns_none():
+    """A task with a non-recurring frequency is marked done but spawns nothing."""
+    task = Task(title="One-off vet visit", duration_minutes=45, frequency="once")
+
+    successor = task.mark_complete(today=MONDAY)
+
+    assert task.done is True
+    assert successor is None
+
+
+def test_successor_has_independent_weekdays_list():
+    """Mutating the successor's weekdays must not affect the original task."""
+    task = Task(title="Groom", duration_minutes=20, frequency="weekly", weekdays=[0])
+
+    successor = task.mark_complete(today=MONDAY)
+    successor.weekdays.append(3)
+
+    assert task.weekdays == [0]
+
+
+def test_next_occurrence_does_not_mark_done():
+    """next_occurrence() computes the successor without completing the task."""
+    task = Task(title="Walk", duration_minutes=20, frequency="daily")
+
+    successor = task.next_occurrence(today=MONDAY)
+
+    assert task.done is False  # untouched
+    assert successor.due_date == MONDAY + timedelta(days=1)
