@@ -7,7 +7,10 @@ classDiagram
         +List~int~ weekdays
         +bool done
         +time fixed_time
-        +mark_complete()
+        +str time
+        +date due_date
+        +mark_complete(today) Task
+        +next_occurrence(today) Task
     }
 
     class Pet {
@@ -21,7 +24,9 @@ classDiagram
         +List~Pet~ pets
         +int available_minutes
         +time day_start
+        +add_pet(name, species) Pet
         +all_tasks() List~(Pet, Task)~
+        +filter_tasks(done, pet_name) List~(Pet, Task)~
     }
 
     class DailyPlan {
@@ -34,9 +39,13 @@ classDiagram
         +int available_minutes
         +time day_start
         +make_plan(pet_tasks, day) DailyPlan
+        +sort_by_time(tasks) List~Task~
+        +find_time_conflicts(pet_tasks) dict
+        +detect_conflicts(pet_tasks) List~str~
         -_is_due(task, day) bool
         -_sort(pet_tasks) List~(Pet, Task)~
         -_fit(pet_tasks, day) DailyPlan
+        -_budget_reason(task, remaining) str
         -_next_free(cursor, duration, occupied) datetime
     }
 
