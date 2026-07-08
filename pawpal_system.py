@@ -18,7 +18,7 @@ a bidirectional link that could drift out of sync.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timedelta
 
 
@@ -42,10 +42,42 @@ class Task:
     # Preferred time of day as an "HH:MM" 24-hour string (e.g. "08:30"), used by
     # Scheduler.sort_by_time(). Empty string means no preference.
     time: str = ""
+    # When this occurrence is due. None for tasks that predate recurrence;
+    # next_occurrence() stamps a concrete date on each spawned instance.
+    due_date: date | None = None
 
-    def mark_complete(self) -> None:
-        """Mark this task as done."""
+    def mark_complete(self, today: date | None = None) -> Task | None:
+        """Mark this task done and, if it recurs, return its next occurrence.
+
+        Recurring (daily/weekly) tasks spawn a fresh, not-done Task for their
+        next due date so the routine keeps going; the caller adds it to the
+        pet's task list. Non-recurring tasks return None. Marking complete is
+        unconditional, so a one-off still gets marked done.
+        """
         self.done = True
+        return self.next_occurrence(today)
+
+    def next_occurrence(self, today: date | None = None) -> Task | None:
+        """Build the next instance of this task, or None if it doesn't recur.
+
+        The next due date is computed from ``today`` (defaulting to
+        ``date.today()``) with timedelta: +1 day for "daily", +7 days for
+        "weekly". The new Task copies this one's details but starts not-done,
+        with a fresh (unshared) weekdays list.
+        """
+        today = today or date.today()
+        if self.frequency == "daily":
+            next_due = today + timedelta(days=1)
+        elif self.frequency == "weekly":
+            next_due = today + timedelta(days=7)
+        else:
+            return None
+        return replace(
+            self,
+            done=False,
+            due_date=next_due,
+            weekdays=list(self.weekdays),
+        )
 
 @dataclass
 class Pet:
