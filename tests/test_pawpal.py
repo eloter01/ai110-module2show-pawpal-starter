@@ -1,6 +1,22 @@
-"""Simple smoke tests for the PawPal+ data classes."""
+"""Simple smoke tests for the PawPal+ data classes and scheduler."""
 
-from pawpal_system import Pet, Task
+from datetime import date, time
+
+from pawpal_system import Pet, Scheduler, Task
+
+
+# A fixed reference day so recurrence tests don't depend on "today".
+MONDAY = date(2026, 7, 6)   # weekday() == 0
+TUESDAY = date(2026, 7, 7)  # weekday() == 1
+
+
+def _plan_for(tasks, day, available_minutes=120, day_start=time(8, 0)):
+    """Run the scheduler over a bare list of tasks under one pet."""
+    pet = Pet(name="Mochi", species="cat")
+    pet.tasks.extend(tasks)
+    scheduler = Scheduler(available_minutes=available_minutes, day_start=day_start)
+    pet_tasks = [(pet, task) for task in pet.tasks]
+    return scheduler.make_plan(pet_tasks, day)
 
 
 def test_task_completion():
@@ -21,3 +37,106 @@ def test_task_addition():
     pet.tasks.append(Task(title="Feed", duration_minutes=10))
 
     assert len(pet.tasks) == 1
+
+
+# --- Recurrence: weekly tasks only appear on their listed weekdays (#1) ---
+
+def test_weekly_task_scheduled_on_its_weekday():
+    """A Monday-only task is scheduled on a Monday."""
+    task = Task(title="Nail trim", duration_minutes=15, frequency="weekly", weekdays=[0])
+
+    plan = _plan_for([task], MONDAY)
+
+    assert [t.title for _, _, t in plan.scheduled] == ["Nail trim"]
+
+
+def test_weekly_task_absent_on_other_weekdays():
+    """A Monday-only task does not appear on Tuesday (not even as skipped)."""
+    task = Task(title="Nail trim", duration_minutes=15, frequency="weekly", weekdays=[0])
+
+    plan = _plan_for([task], TUESDAY)
+
+    assert plan.scheduled == []
+    assert plan.skipped == []
+
+
+def test_daily_task_scheduled_every_day():
+    """A daily task appears regardless of weekday."""
+    task = Task(title="Feed", duration_minutes=10, frequency="daily")
+
+    assert len(_plan_for([task], MONDAY).scheduled) == 1
+    assert len(_plan_for([task], TUESDAY).scheduled) == 1
+
+
+# --- Completion: done tasks drop out of the plan entirely (#2) ---
+
+def test_done_task_is_not_scheduled():
+    """A completed task is neither scheduled nor reported as skipped."""
+    task = Task(title="Morning walk", duration_minutes=20)
+    task.mark_complete()
+
+    plan = _plan_for([task], MONDAY)
+
+    assert plan.scheduled == []
+    assert plan.skipped == []
+
+
+def test_done_task_frees_budget_for_others():
+    """Completing a task leaves its minutes available for the rest."""
+    done = Task(title="Long groom", duration_minutes=100, priority="high")
+    done.mark_complete()
+    walk = Task(title="Walk", duration_minutes=90, priority="medium")
+
+    plan = _plan_for([done, walk], MONDAY, available_minutes=120)
+
+    # Without the done task consuming budget, the 90-min walk fits.
+    assert [t.title for _, _, t in plan.scheduled] == ["Walk"]
+
+
+# --- Anchored tasks: fixed_time slots are honored and reserved (#4) ---
+
+def test_fixed_time_task_placed_at_its_clock_time():
+    """An anchored task starts at its fixed_time, not at day_start."""
+    meds = Task(title="Meds", duration_minutes=10, fixed_time=time(12, 0))
+
+    plan = _plan_for([meds], MONDAY, day_start=time(8, 0))
+
+    start, _, task = plan.scheduled[0]
+    assert task.title == "Meds"
+    assert start == time(12, 0)
+
+
+def test_floating_task_flows_around_anchor():
+    """A floating task that would collide with an anchor starts after it."""
+    meds = Task(title="Meds", duration_minutes=30, fixed_time=time(8, 0))
+    walk = Task(title="Walk", duration_minutes=60)
+
+    plan = _plan_for([meds, walk], MONDAY, day_start=time(8, 0))
+
+    starts = {t.title: s for s, _, t in plan.scheduled}
+    assert starts["Meds"] == time(8, 0)
+    assert starts["Walk"] == time(8, 30)  # pushed past the anchor, no overlap
+
+
+def test_scheduled_items_are_time_ordered():
+    """Output is sorted by start time even when an anchor sits later in the day."""
+    meds = Task(title="Meds", duration_minutes=10, fixed_time=time(18, 0))
+    walk = Task(title="Walk", duration_minutes=20)
+
+    plan = _plan_for([meds, walk], MONDAY, day_start=time(8, 0))
+
+    times = [s for s, _, _ in plan.scheduled]
+    assert times == sorted(times)
+
+
+def test_anchor_over_budget_is_skipped_with_reason():
+    """An anchored task that busts the budget is skipped and explained."""
+    meds = Task(title="Meds", duration_minutes=200, fixed_time=time(9, 0))
+
+    plan = _plan_for([meds], MONDAY, available_minutes=60)
+
+    assert plan.scheduled == []
+    assert len(plan.skipped) == 1
+    _, task, reason = plan.skipped[0]
+    assert task.title == "Meds"
+    assert "min left" in reason
